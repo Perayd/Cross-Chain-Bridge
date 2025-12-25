@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "./BridgeToken.sol";
+
+contract CrossChainBridge {
+    ILayerZeroEndpoint public endpoint;
+    BridgeToken public token;
+
+    mapping(uint16 => bytes) public trustedRemote;
+
+    constructor(address _endpoint, address _token) {
+        endpoint = ILayerZeroEndpoint(_endpoint);
+        token = BridgeToken(_token);
+    }
+
+    function setTrustedRemote(uint16 chainId, bytes calldata remote) external {
+        trustedRemote[chainId] = remote;
+    }
+
+    // Send tokens cross-chain
+    function bridge(
+        uint16 dstChainId,
+        uint256 amount
+    ) external payable {
+        token.burn(msg.sender, amount);
+
+        bytes memory payload = abi.encode(msg.sender, amount);
+
+        endpoint.send{value: msg.value}(
+            dstChainId,
+            trustedRemote[dstChainId],
+            payload,
+            payable(msg.sender),
+            address(0),
+            bytes("")
+        );
+    }
+
+    // Receive tokens from another chain
+    function lzReceive(
+        uint16,
+        bytes calldata,
+        uint64,
+        bytes calldata payload
+    ) external {
+        require(msg.sender == address(endpoint), "Invalid caller");
+
+        (address to, uint256 amount) = abi.decode(payload, (address, uint256));
+        token.mint(to, amount);
+    }
+}
